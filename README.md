@@ -84,6 +84,10 @@ Environment:
 
 See [docs/CLEANVERSE_INTEGRATION.md](docs/CLEANVERSE_INTEGRATION.md) and [docs/DEMO.md](docs/DEMO.md).
 
+## Business plan / deck
+
+Hackathon submission deck: [docs/business-plan/cleanmandate-deck.pdf](docs/business-plan/cleanmandate-deck.pdf)
+
 ## Crates
 
 | Crate | Purpose |

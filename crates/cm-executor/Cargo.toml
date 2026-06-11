@@ -1,0 +1,19 @@
+[package]
+name = "cm-executor"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mandate orchestration: A-Pass → policy → CCP → CHP → A-Token"
+
+[dependencies]
+cm-chp = { workspace = true }
+cm-cleanverse = { workspace = true }
+cm-core = { workspace = true }
+cm-policy = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

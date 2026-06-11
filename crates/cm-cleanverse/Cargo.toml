@@ -1,0 +1,16 @@
+[package]
+name = "cm-cleanverse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cleanverse A-Pass, A-Token, and CCP client (sandbox + mock)"
+
+[dependencies]
+cm-core = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

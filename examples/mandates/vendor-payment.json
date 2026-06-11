@@ -1,0 +1,21 @@
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "principal_wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+  "agent_id": "procurement-agent-v1",
+  "recipient_wallet": "0xVendor00000000000000000000000000000001",
+  "amount": "250.00",
+  "asset": "A-USDC",
+  "chain": "monad-testnet",
+  "daily_cap_usd": 5000.0,
+  "travel_rule": {
+    "originator_name": "Acme Corp Treasury",
+    "originator_wallet": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "beneficiary_name": "CloudHost SaaS Ltd",
+    "beneficiary_wallet": "0xVendor00000000000000000000000000000001",
+    "originator_vasp": "Cleanverse",
+    "beneficiary_vasp": null,
+    "purpose": "Monthly infrastructure subscription"
+  },
+  "memo": "INV-2026-0607 — June hosting",
+  "issued_at": "2026-06-07T12:00:00Z"
+}

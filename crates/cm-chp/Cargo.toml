@@ -1,0 +1,15 @@
+[package]
+name = "cm-chp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Consensus Hardening Protocol gate for mandate execution"
+
+[dependencies]
+cm-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

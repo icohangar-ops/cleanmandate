@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/cm-core",
+    "crates/cm-policy",
+    "crates/cm-cleanverse",
+    "crates/cm-chp",
+    "crates/cm-executor",
+    "crates/cm-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Shyam Desigan <cubiczan@noreply.codeberg.org>"]
+license = "MIT"
+repository = "https://codeberg.org/cubiczan/cleanmandate"
+description = "CleanMandate — verified AI agent payment mandates on Cleanverse + Monad"
+
+[workspace.dependencies]
+cm-core = { path = "crates/cm-core" }
+cm-policy = { path = "crates/cm-policy" }
+cm-cleanverse = { path = "crates/cm-cleanverse" }
+cm-chp = { path = "crates/cm-chp" }
+cm-executor = { path = "crates/cm-executor" }
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+hex = "0.4"
+hmac = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+sha2 = "0.10"
+thiserror = "2.0"
+tokio = { version = "1.49", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1.19", features = ["v4", "serde"] }

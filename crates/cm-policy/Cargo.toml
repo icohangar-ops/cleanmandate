@@ -1,0 +1,14 @@
+[package]
+name = "cm-policy"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Mandate spend and recipient policy engine"
+
+[dependencies]
+cm-core = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }

@@ -6,7 +6,7 @@
 
 **Verified payment mandates for AI agents** — Cleanverse Build hackathon entry (Track 02: Trusted AI Agent Transactions).
 
-**Repos:** [Codeberg](https://codeberg.org/cubiczan/cleanmandate) · [GitHub](https://github.com/Cubiczan/cleanmandate)
+**Repos:** [Codeberg](https://codeberg.org/cubiczan/cleanmandate) · [GitHub](https://github.com/icohangar-ops/cleanmandate)
 
 CleanMandate composes your existing agent stack with [Cleanverse](https://cleanverse.com) compliance primitives on **Monad**:
 

@@ -4,8 +4,15 @@ use crate::types::{
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
+
+/// Connect + read timeout for every live Cleanverse call. Without this a hung
+/// API would block the payment agent indefinitely.
+const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+/// Number of additional attempts after the first failure for transient errors.
+const MAX_RETRIES: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanverseMode {
@@ -54,10 +61,12 @@ pub struct CleanverseClient {
 
 impl CleanverseClient {
     pub fn new(config: CleanverseConfig) -> Self {
-        Self {
-            config,
-            http: Client::new(),
-        }
+        let http = Client::builder()
+            .timeout(HTTP_TIMEOUT)
+            .connect_timeout(HTTP_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| Client::new());
+        Self { config, http }
     }
 
     pub fn mode(&self) -> CleanverseMode {
@@ -88,7 +97,7 @@ impl CleanverseClient {
         }
 
         let resp: Resp = self
-            .post("/apass/verify", &Req { wallet })
+            .post("/apass/verify", &Req { wallet }, None)
             .await?;
         Ok(ApassVerification {
             wallet: wallet.to_string(),
@@ -121,7 +130,7 @@ impl CleanverseClient {
             });
         }
 
-        let resp: CcpPreCheckResult = self.post("/ccp/pre-check", req).await?;
+        let resp: CcpPreCheckResult = self.post("/ccp/pre-check", req, None).await?;
         Ok(resp)
     }
 
@@ -138,7 +147,13 @@ impl CleanverseClient {
             });
         }
 
-        let resp: TokenTransferResult = self.post("/atoken/transfer", req).await?;
+        // Deterministic idempotency key derived from the mandate id so that a
+        // retry after a network timeout cannot trigger a second on-chain
+        // transfer: the Cleanverse API dedupes on this key.
+        let idempotency_key = format!("mandate-{}", req.mandate_id);
+        let resp: TokenTransferResult = self
+            .post("/atoken/transfer", req, Some(&idempotency_key))
+            .await?;
         Ok(resp)
     }
 
@@ -146,18 +161,59 @@ impl CleanverseClient {
         &self,
         path: &str,
         body: &T,
+        idempotency_key: Option<&str>,
     ) -> Result<R, CleanverseError> {
         let url = format!("{}{}", self.config.api_base.trim_end_matches('/'), path);
-        let mut req = self.http.post(&url).json(body);
-        if let Some(key) = &self.config.api_key {
-            req = req.header("Authorization", format!("Bearer {key}"));
+
+        let mut attempt: u32 = 0;
+        loop {
+            let mut req = self.http.post(&url).json(body);
+            if let Some(key) = &self.config.api_key {
+                req = req.header("Authorization", format!("Bearer {key}"));
+            }
+            // An idempotency key makes a retry safe even if a prior attempt
+            // reached the server before the connection failed/timed out.
+            if let Some(idem) = idempotency_key {
+                req = req.header("Idempotency-Key", idem);
+            }
+
+            match req.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        return Ok(resp.json().await?);
+                    }
+                    // Retry transient server-side failures (5xx / 429); surface
+                    // 4xx (business) errors immediately.
+                    let retryable =
+                        status.is_server_error() || status.as_u16() == 429;
+                    let text = resp.text().await.unwrap_or_default();
+                    if retryable && attempt < MAX_RETRIES {
+                        attempt += 1;
+                        Self::backoff(attempt).await;
+                        continue;
+                    }
+                    return Err(CleanverseError::Api(format!("{status}: {text}")));
+                }
+                Err(e) => {
+                    // Network-level errors (timeout, connect, send) are
+                    // transient; retry with the idempotency key in place.
+                    let transient =
+                        e.is_timeout() || e.is_connect() || e.is_request();
+                    if transient && attempt < MAX_RETRIES {
+                        attempt += 1;
+                        Self::backoff(attempt).await;
+                        continue;
+                    }
+                    return Err(CleanverseError::Http(e));
+                }
+            }
         }
-        let resp = req.send().await?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(CleanverseError::Api(format!("{status}: {text}")));
-        }
-        Ok(resp.json().await?)
+    }
+
+    async fn backoff(attempt: u32) {
+        // Exponential backoff: 200ms, 400ms, ...
+        let millis = 200u64.saturating_mul(2u64.saturating_pow(attempt - 1));
+        tokio::time::sleep(Duration::from_millis(millis)).await;
     }
 }

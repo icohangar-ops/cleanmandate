@@ -1,6 +1,6 @@
 use cm_chp::{ChpConfig, ChpGate, ChpLock};
 use cm_cleanverse::{
-    CleanverseClient, CcpPreCheckRequest, TokenTransferRequest,
+    CleanverseClient, CcpPreCheckRequest, TokenTransferRequest, TokenTransferResult,
 };
 use cm_core::{
     AgentMandate, AuditLedger, AuditPhase, ComplianceBundle, LedgerConfig, MandateStatus,
@@ -210,6 +210,33 @@ impl MandateExecutor {
             });
         }
 
+        // Idempotency guard: if a prior invocation already completed the
+        // on-chain transfer for this mandate, return that result instead of
+        // re-submitting. Prevents a double-spend when the caller retries after
+        // a network timeout. We scan the (signature-verified) ledger for an
+        // Execute/completed event for this mandate id.
+        if let Some(prior) = self.find_completed_transfer(mandate.id)? {
+            let bundle = ComplianceBundle {
+                mandate_id: mandate.id,
+                a_pass_verified: true,
+                ccp_passed: true,
+                policy_passed: true,
+                chp_locked: true,
+                travel_rule: mandate.travel_rule.clone(),
+                audit_event_ids: audit_ids,
+                export_ready: true,
+            };
+            return Ok(PayResult {
+                mandate_id: mandate.id,
+                status: MandateStatus::Completed,
+                tx_hash: prior.tx_hash,
+                ccp_reference: Some(ccp.ccp_reference),
+                bundle,
+                chp_lock: Some(chp_decision.lock),
+                message: "idempotent: transfer already completed for this mandate".into(),
+            });
+        }
+
         let transfer_req = TokenTransferRequest {
             mandate_id: mandate.id,
             from_wallet: mandate.principal_wallet.clone(),
@@ -262,6 +289,30 @@ impl MandateExecutor {
             chp_lock: Some(chp_decision.lock),
             message: transfer.message,
         })
+    }
+
+    /// Look for a prior successful on-chain transfer for this mandate in the
+    /// audit ledger. Returns the recorded transfer result if one exists so the
+    /// caller can avoid re-submitting (double-spend) on retry.
+    fn find_completed_transfer(
+        &self,
+        mandate_id: Uuid,
+    ) -> Result<Option<TokenTransferResult>, ExecutorError> {
+        for event in self.ledger.read_all()? {
+            if event.mandate_id == Some(mandate_id)
+                && event.phase == AuditPhase::Execute
+                && event.action == "completed"
+            {
+                if let Ok(result) =
+                    serde_json::from_value::<TokenTransferResult>(event.details.clone())
+                {
+                    if result.success {
+                        return Ok(Some(result));
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub fn export_audit(&self, mandate_id: Uuid) -> Result<serde_json::Value, ExecutorError> {

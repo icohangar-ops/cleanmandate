@@ -48,6 +48,8 @@ pub enum AuditError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("audit ledger integrity check failed for event {0}: {1}")]
+    Tampered(Uuid, String),
 }
 
 pub struct AuditLedger {
@@ -68,14 +70,8 @@ impl AuditLedger {
         details: serde_json::Value,
     ) -> Result<TraceEvent, AuditError> {
         let timestamp = Utc::now();
-        let canonical = serde_json::json!({
-            "phase": phase,
-            "agent": agent,
-            "action": action,
-            "mandate_id": mandate_id,
-            "details": details,
-            "timestamp": timestamp.to_rfc3339(),
-        });
+        let canonical =
+            canonical_payload(phase, agent, action, mandate_id, &details, timestamp);
         let content_hash = hash_payload(&canonical);
         let signature = self
             .config
@@ -108,10 +104,51 @@ impl AuditLedger {
         for line in reader.lines() {
             let line = line?;
             if !line.trim().is_empty() {
-                events.push(serde_json::from_str(&line)?);
+                let event: TraceEvent = serde_json::from_str(&line)?;
+                self.verify_event(&event)?;
+                events.push(event);
             }
         }
         Ok(events)
+    }
+
+    /// Re-derive the content hash and (when a signing key is configured)
+    /// re-check the stored HMAC signature. This prevents a tampered or forged
+    /// ledger line from being presented as legitimate compliance evidence.
+    fn verify_event(&self, event: &TraceEvent) -> Result<(), AuditError> {
+        let canonical = canonical_payload(
+            event.phase,
+            &event.agent,
+            &event.action,
+            event.mandate_id,
+            &event.details,
+            event.timestamp,
+        );
+        let expected_hash = hash_payload(&canonical);
+        if expected_hash != event.content_hash {
+            return Err(AuditError::Tampered(
+                event.id,
+                "content hash mismatch".into(),
+            ));
+        }
+
+        if let Some(key) = &self.config.signing_key {
+            let signature = event.signature.as_ref().ok_or_else(|| {
+                AuditError::Tampered(event.id, "missing signature".into())
+            })?;
+            let expected_sig = sign_payload(key, &event.content_hash);
+            // Constant-time-ish comparison via fixed-length hex strings.
+            if !bool::from(constant_time_eq(
+                expected_sig.as_bytes(),
+                signature.as_bytes(),
+            )) {
+                return Err(AuditError::Tampered(
+                    event.id,
+                    "signature mismatch".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn append(&self, event: &TraceEvent) -> Result<(), AuditError> {
@@ -124,6 +161,52 @@ impl AuditLedger {
             .open(&self.config.ledger_path)?;
         writeln!(file, "{}", serde_json::to_string(event)?)?;
         Ok(())
+    }
+}
+
+/// Build the exact canonical JSON payload that is hashed (and then signed).
+/// Both `record` and `verify_event` MUST go through this so a verified hash is
+/// guaranteed to match what was written.
+fn canonical_payload(
+    phase: AuditPhase,
+    agent: &str,
+    action: &str,
+    mandate_id: Option<Uuid>,
+    details: &serde_json::Value,
+    timestamp: DateTime<Utc>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "phase": phase,
+        "agent": agent,
+        "action": action,
+        "mandate_id": mandate_id,
+        "details": details,
+        "timestamp": timestamp.to_rfc3339(),
+    })
+}
+
+/// Length-aware constant-time byte comparison to avoid leaking signature bytes
+/// via early-exit timing.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> subtle_eq::Choice {
+    subtle_eq::ct_eq(a, b)
+}
+
+mod subtle_eq {
+    pub struct Choice(u8);
+    impl From<Choice> for bool {
+        fn from(c: Choice) -> bool {
+            c.0 == 1
+        }
+    }
+    pub fn ct_eq(a: &[u8], b: &[u8]) -> Choice {
+        if a.len() != b.len() {
+            return Choice(0);
+        }
+        let mut diff: u8 = 0;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        Choice(((diff == 0) as u8) & 1)
     }
 }
 
